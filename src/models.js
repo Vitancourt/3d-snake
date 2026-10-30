@@ -100,7 +100,10 @@ function prepareSnake(gltf) {
     const mats = Array.isArray(o.material) ? o.material : [o.material];
     for (const m of mats) if (SKIN[m.name]) { m.color.setHex(SKIN[m.name]); m.roughness = 0.5; }
   });
-  state.snake = { object: wrapper, mixer, length: SNAKE_LENGTH };
+  // The model's own thin tail would stick out behind the head; the tube body replaces it.
+  const tail = [];
+  model.traverse((o) => { if (o.isBone && /^Tail/.test(o.name)) tail.push(o); });
+  state.snake = { object: wrapper, mixer, tail, length: SNAKE_LENGTH };
 }
 
 export async function loadModels() {

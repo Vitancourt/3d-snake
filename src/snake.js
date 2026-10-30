@@ -63,6 +63,7 @@ export class Snake {
     this.headObject = model ? model.object : fallbackHead();
     this.headObject.rotation.order = 'YXZ'; // yaw first, then pitch along the heading
     this.mixer = model ? model.mixer : null;
+    this.tailBones = model ? model.tail : [];
     scene.add(this.headObject);
 
     // Body: a tube whose rings follow the path the head has travelled.
@@ -193,6 +194,7 @@ export class Snake {
     this.yaw += angleDiff(this.yaw, yawFor(this.dir)) * Math.min(1, dt * 14);
     this.pop = Math.max(0, this.pop - dt * 4);
     if (this.mixer) this.mixer.update(dt * (0.4 + speed / 12));
+    for (const b of this.tailBones) b.scale.setScalar(0.001);
 
     this.headObject.position.set(this.x, this.y, this.z);
     this.headObject.rotation.y = this.yaw;
