@@ -6,6 +6,7 @@ const RING_STEP = 0.35; // distance between rings of the body tube
 const SIDES = 12;
 const MAX_RINGS = 900;
 const BODY_START = 1.0; // the tube begins this far behind the head origin, inside the head model
+const BODY_BLEND = 4; // metres over which a jump lifts the body
 const COLLIDE_START = 2.2; // tail points closer than this to the head can't bite it
 const OVERSHOOT = CFG.streetW / 2 + 1.0; // how far past the last intersection the head can travel
 
@@ -60,6 +61,7 @@ export class Snake {
     this.scene = scene;
     const model = getSnakeModel();
     this.headObject = model ? model.object : fallbackHead();
+    this.headObject.rotation.order = 'YXZ'; // yaw first, then pitch along the heading
     this.mixer = model ? model.mixer : null;
     scene.add(this.headObject);
 
@@ -104,6 +106,7 @@ export class Snake {
     this.crashed = false;
     this.y = 0;
     this.jumpT = -1;
+    this.vy = 0;
     this.pop = 0;
     this.yaw = yawFor(this.dir);
     this.updatePosition();
@@ -173,8 +176,11 @@ export class Snake {
     if (this.jumpT >= 0) {
       this.jumpT += dt;
       const u = this.jumpT / CFG.jumpDur;
-      if (u >= 1) { this.jumpT = -1; this.y = 0; }
-      else this.y = CFG.jumpH * 4 * u * (1 - u);
+      if (u >= 1) { this.jumpT = -1; this.y = 0; this.vy = 0; }
+      else {
+        this.y = CFG.jumpH * 4 * u * (1 - u);
+        this.vy = (CFG.jumpH * 4 * (1 - 2 * u)) / CFG.jumpDur;
+      }
     }
 
     this.trail.push({ x: this.x, z: this.z, y: this.y, d: this.dist });
@@ -189,6 +195,7 @@ export class Snake {
 
     this.headObject.position.set(this.x, this.y, this.z);
     this.headObject.rotation.y = this.yaw;
+    this.headObject.rotation.x = Math.atan2(this.vy, speed) * 0.8; // nose up while rising
     this.headObject.scale.setScalar(1 + this.pop * 0.2);
     this.build();
   }
@@ -221,6 +228,13 @@ export class Snake {
     for (let k = 0; k < rings; k++) {
       this.pointBack(BODY_START + k * RING_STEP, tmp);
       px[k] = tmp.x; pz[k] = tmp.z; py[k] = tmp.y;
+    }
+    // Keep the start of the body attached to the head while it is in the air: lift the first
+    // few metres by the head's height and let that fade out down the body.
+    const lift = this.y - py[0];
+    for (let k = 0; k < rings; k++) {
+      const w = Math.max(0, 1 - (k * RING_STEP) / BODY_BLEND);
+      py[k] += lift * w * w * (3 - 2 * w);
     }
     // Round the 90 degree corners of the road a little.
     for (let pass = 0; pass < 3; pass++) {
