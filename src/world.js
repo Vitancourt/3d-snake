@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { CFG } from './config.js';
+import { cloneLamp } from './models.js';
 
 const lam = (color, extra = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.8, metalness: 0, ...extra });
 
@@ -283,8 +284,16 @@ export class World {
 
       // Street lamps and trees on the sidewalk strip.
       const edge = side < 0 ? lo : hi;
-      for (let dz = 10; dz < CFG.chunkLen; dz += 20) {
+      for (let dz = 10; dz < CFG.chunkLen; dz += 40) {
         const x = edge + side * 1.2;
+        const lamp = cloneLamp();
+        if (lamp) {
+          addBox(group, 0.2, 5.4, 0.2, M.pole, x, 2.7, z0 - dz);
+          lamp.position.set(x, 4.7, z0 - dz);
+          lamp.rotation.y = side < 0 ? Math.PI / 2 : -Math.PI / 2; // bracket reaches over the road
+          group.add(lamp);
+          continue;
+        }
         addBox(group, 0.18, 5, 0.18, M.pole, x, 2.5, z0 - dz);
         addBox(group, 0.9, 0.12, 0.12, M.pole, x - side * 0.4, 5, z0 - dz);
         addBox(group, 0.5, 0.15, 0.35, M.lamp, x - side * 0.8, 4.92, z0 - dz);

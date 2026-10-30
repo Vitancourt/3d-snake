@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { CFG } from './config.js';
 import { overlap } from './collision.js';
+import { cloneFerrari, cloneBarrier } from './models.js';
 
 const lam = (color, extra = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.7, metalness: 0, ...extra });
 const MAT = {
@@ -71,6 +72,11 @@ function mesh(geo, mat, x, y, z) {
 }
 
 function buildCar() {
+  const real = cloneFerrari();
+  if (real) {
+    real.rotation.y = Math.PI; // front faces the player
+    return real;
+  }
   const g = new THREE.Group();
   const paint = carMats[Math.floor(Math.random() * carMats.length)];
   g.add(mesh(G.body, paint, 0, 0, 0));
@@ -143,7 +149,7 @@ function buildApple() {
 
 const STATIC_TYPES = {
   cone: { build: buildCone, hw: 0.9, hd: 0.5, h: 0.9 },
-  barrier: { build: buildBarrier, hw: 1.3, hd: 0.3, h: 0.9 },
+  barrier: { build: () => cloneBarrier() ?? buildBarrier(), hw: 1.15, hd: 0.35, h: 1.5 },
   dumpster: { build: buildDumpster, hw: 1.0, hd: 0.9, h: 2.7 },
 };
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
@@ -190,7 +196,7 @@ export class Traffic {
   addCar(x, zRow, snakeZ, speed) {
     const vz = CFG.oncomingSpeed;
     const t = (snakeZ - zRow) / speed;
-    this.addHazard(buildCar(), x, zRow - vz * t, 0.9, 2.1, 1.45, vz, true);
+    this.addHazard(buildCar(), x, zRow - vz * t, 0.95, 2.3, 1.25, vz, true);
   }
 
   addFood(x, z) {
@@ -226,6 +232,11 @@ export class Traffic {
       if (h.vz) {
         h.z += h.vz * dt;
         h.mesh.position.z = h.z;
+        const wheels = h.mesh.userData.wheels;
+        if (wheels) {
+          h.spin = (h.spin || 0) + (h.vz * dt) / 0.36;
+          for (const w of wheels) w.rotation.x = -Math.PI / 2 + h.spin;
+        }
       }
     }
     for (const f of this.foods) {

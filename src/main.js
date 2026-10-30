@@ -6,6 +6,7 @@ import { Traffic } from './hazards.js';
 import { World } from './world.js';
 import { createInput } from './input.js';
 import { ui } from './ui.js';
+import { loadModels } from './models.js';
 
 const HORIZON = 0xcfe3f2;
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -13,7 +14,7 @@ renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.type = THREE.PCFShadowMap;
 document.body.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
@@ -57,6 +58,9 @@ function resize() {
 }
 addEventListener('resize', resize);
 resize();
+
+ui.setLoading();
+await loadModels();
 
 const snake = new Snake(scene);
 const traffic = new Traffic(scene);
@@ -143,7 +147,7 @@ function autopilot() {
     snake.moveSlot(Math.sign(row.slot - snake.slot), slotOpen);
   }
   const ahead = traffic.hazards.find(
-    (h) => !h.vz && h.y1 < 1 && Math.abs(h.x - snake.x) < 1.2 && snake.z - h.z > 0 && snake.z - h.z < 0.18 * speedNow() + 1.5,
+    (h) => !h.vz && h.y1 < 2 && Math.abs(h.x - snake.x) < 1.2 && snake.z - h.z > 0 && snake.z - h.z < 0.18 * speedNow() + 1.5,
   );
   if (ahead) snake.jump();
 }

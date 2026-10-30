@@ -11,6 +11,8 @@ export const ui = {
     $('best').textContent = `Best ${best}`;
   },
 
+  setLoading() { $('prompt').innerHTML = '<b>Loading models…</b>'; },
+
   showMenu() {
     $('title').textContent = '3D SNAKE';
     $('subtitle').textContent = 'Town Runner';
