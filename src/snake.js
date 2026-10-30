@@ -5,7 +5,7 @@ import { getSnakeModel } from './models.js';
 const RING_STEP = 0.35; // distance between rings of the body tube
 const SIDES = 12;
 const MAX_RINGS = 900;
-const BODY_START = 1.0; // the tube begins this far behind the head origin, inside the head model
+const BODY_START = 0.5; // the tube begins this far behind the head origin, inside the head model
 const BODY_BLEND = 4; // metres over which a jump lifts the body
 const COLLIDE_START = 2.2; // tail points closer than this to the head can't bite it
 const OVERSHOOT = CFG.streetW / 2 + 1.0; // how far past the last intersection the head can travel
@@ -107,6 +107,7 @@ export class Snake {
     this.y = 0;
     this.jumpT = -1;
     this.vy = 0;
+    this.pitch = 0;
     this.pop = 0;
     this.yaw = yawFor(this.dir);
     this.updatePosition();
@@ -195,7 +196,8 @@ export class Snake {
 
     this.headObject.position.set(this.x, this.y, this.z);
     this.headObject.rotation.y = this.yaw;
-    this.headObject.rotation.x = Math.atan2(this.vy, speed) * 0.8; // nose up while rising
+    this.pitch = Math.max(-0.35, Math.min(0.35, Math.atan2(this.vy, speed) * 0.4)); // gentle nose up while rising
+    this.headObject.rotation.x = this.pitch;
     this.headObject.scale.setScalar(1 + this.pop * 0.2);
     this.build();
   }
@@ -231,7 +233,7 @@ export class Snake {
     }
     // Keep the start of the body attached to the head while it is in the air: lift the first
     // few metres by the head's height and let that fade out down the body.
-    const lift = this.y - py[0];
+    const lift = this.y - BODY_START * Math.sin(this.pitch) - py[0];
     for (let k = 0; k < rings; k++) {
       const w = Math.max(0, 1 - (k * RING_STEP) / BODY_BLEND);
       py[k] += lift * w * w * (3 - 2 * w);
