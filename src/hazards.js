@@ -2,11 +2,13 @@ import * as THREE from 'three';
 import { CFG } from './config.js';
 import { overlap } from './collision.js';
 
-const lam = (color, extra = {}) => new THREE.MeshLambertMaterial({ color, ...extra });
+const lam = (color, extra = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.7, metalness: 0, ...extra });
 const MAT = {
-  wheel: lam(0x1b1b1b),
-  glass: lam(0x9fd3ff),
-  head: lam(0xfff1a8, { emissive: 0xffe066 }),
+  wheel: lam(0x151515, { roughness: 0.9 }),
+  rim: lam(0xb8bcc4, { roughness: 0.3, metalness: 0.8 }),
+  glass: lam(0x0f1a26, { roughness: 0.05, metalness: 0.9 }),
+  bumper: lam(0x1d1f24, { roughness: 0.6 }),
+  head: lam(0xffffff, { emissive: 0xfff3c4, emissiveIntensity: 2 }),
   tail: lam(0xff2d2d, { emissive: 0xaa0000 }),
   orange: lam(0xff7a1a),
   white: lam(0xf5f5f5),
@@ -17,24 +19,50 @@ const MAT = {
   leaf: lam(0x40c057),
 };
 const CAR_COLORS = [0xe63946, 0x457b9d, 0xf4a261, 0x2a9d8f, 0xe9c46a, 0x8d99ae, 0x9b5de5, 0xffffff];
-const carMats = CAR_COLORS.map((c) => lam(c));
+const carMats = CAR_COLORS.map((c) => lam(c, { roughness: 0.25, metalness: 0.55 }));
+
+function carShape(pts) {
+  const sh = new THREE.Shape();
+  pts.forEach(([x, y], i) => (i ? sh.lineTo(x, y) : sh.moveTo(x, y)));
+  sh.closePath();
+  return sh;
+}
+// Profile coordinates: x is front(+)/rear(-), y is height. Extruded across the car's width,
+// then turned so the front points to -z.
+function carExtrude(pts, width, bevel) {
+  const g = new THREE.ExtrudeGeometry(carShape(pts), {
+    depth: width - bevel * 2, bevelEnabled: bevel > 0, bevelSize: bevel, bevelThickness: bevel, bevelSegments: 2,
+  });
+  g.translate(0, 0, -(width - bevel * 2) / 2);
+  g.rotateY(Math.PI / 2);
+  return g;
+}
 
 const G = {
-  body: new THREE.BoxGeometry(1.8, 0.7, 4.0),
-  cabin: new THREE.BoxGeometry(1.5, 0.6, 2.0),
-  wheel: new THREE.CylinderGeometry(0.36, 0.36, 0.3, 12),
-  lamp: new THREE.BoxGeometry(0.4, 0.2, 0.1),
-  cone: new THREE.ConeGeometry(0.38, 0.9, 10),
+  body: carExtrude([
+    [-2.0, 0.28], [-2.0, 0.8], [-1.75, 0.92], [-1.45, 0.95], [-0.95, 1.42], [0.45, 1.42],
+    [1.1, 0.95], [1.75, 0.88], [2.0, 0.72], [2.0, 0.28],
+  ], 1.9, 0.06),
+  sideGlass: carExtrude([[-1.2, 1.0], [-0.88, 1.36], [0.4, 1.36], [0.95, 1.0]], 2.0, 0),
+  windshield: new THREE.BoxGeometry(1.5, 0.64, 0.02),
+  rearGlass: new THREE.BoxGeometry(1.5, 0.55, 0.02),
+  wheel: new THREE.CylinderGeometry(0.36, 0.36, 0.28, 16),
+  rim: new THREE.CylinderGeometry(0.21, 0.21, 0.3, 12),
+  lamp: new THREE.BoxGeometry(0.45, 0.14, 0.08),
+  bumper: new THREE.BoxGeometry(1.95, 0.22, 0.12),
+  cone: new THREE.ConeGeometry(0.38, 0.9, 12),
+  coneBand: new THREE.CylinderGeometry(0.2, 0.26, 0.14, 12),
   coneBase: new THREE.BoxGeometry(0.8, 0.08, 0.8),
   barrierBand: new THREE.BoxGeometry(2.6 / 4, 0.45, 0.5),
   dumpster: new THREE.BoxGeometry(2.0, 2.6, 1.8),
   dumpLid: new THREE.BoxGeometry(2.1, 0.15, 1.9),
   block: new THREE.BoxGeometry(CFG.laneW - 0.1, 2.8, 1.2),
   blockBand: new THREE.BoxGeometry((CFG.laneW - 0.1) / 4, 1.0, 1.25),
-  apple: new THREE.SphereGeometry(0.4, 14, 10),
+  apple: new THREE.SphereGeometry(0.4, 16, 12),
   leaf: new THREE.BoxGeometry(0.28, 0.06, 0.16),
 };
 G.wheel.rotateZ(Math.PI / 2);
+G.rim.rotateZ(Math.PI / 2);
 
 function mesh(geo, mat, x, y, z) {
   const m = new THREE.Mesh(geo, mat);
@@ -42,17 +70,27 @@ function mesh(geo, mat, x, y, z) {
   return m;
 }
 
-function buildCar(oncoming) {
+function buildCar() {
   const g = new THREE.Group();
   const paint = carMats[Math.floor(Math.random() * carMats.length)];
-  g.add(mesh(G.body, paint, 0, 0.65, 0));
-  g.add(mesh(G.cabin, MAT.glass, 0, 1.3, 0.2));
+  g.add(mesh(G.body, paint, 0, 0, 0));
+  g.add(mesh(G.sideGlass, MAT.glass, 0, 0, 0));
+  const ws = mesh(G.windshield, MAT.glass, 0, 1.185 + 0.075 * 0.81, -0.775 - 0.075 * 0.59);
+  ws.rotation.x = 0.944;
+  const rg = mesh(G.rearGlass, MAT.glass, 0, 1.185 + 0.075 * 0.73, 1.2 + 0.075 * 0.68);
+  rg.rotation.x = -0.816;
+  g.add(ws, rg);
   for (const sx of [-1, 1]) {
-    for (const sz of [-1.3, 1.3]) g.add(mesh(G.wheel, MAT.wheel, 0.9 * sx, 0.36, sz));
-    g.add(mesh(G.lamp, MAT.head, 0.55 * sx, 0.7, -2.0));
-    g.add(mesh(G.lamp, MAT.tail, 0.55 * sx, 0.7, 2.0));
+    for (const sz of [-1.3, 1.3]) {
+      g.add(mesh(G.wheel, MAT.wheel, 0.9 * sx, 0.36, sz));
+      g.add(mesh(G.rim, MAT.rim, 0.92 * sx, 0.36, sz));
+    }
+    g.add(mesh(G.lamp, MAT.head, 0.6 * sx, 0.7, -2.04));
+    g.add(mesh(G.lamp, MAT.tail, 0.62 * sx, 0.74, 2.04));
   }
-  if (oncoming) g.rotation.y = Math.PI; // local front is -z
+  g.add(mesh(G.bumper, MAT.bumper, 0, 0.36, -2.0));
+  g.add(mesh(G.bumper, MAT.bumper, 0, 0.36, 2.0));
+  g.rotation.y = Math.PI; // front faces the player
   return g;
 }
 
@@ -62,6 +100,7 @@ function buildCone() {
     const c = new THREE.Group();
     c.add(mesh(G.coneBase, MAT.dark, 0, 0.04, 0));
     c.add(mesh(G.cone, MAT.orange, 0, 0.53, 0));
+    c.add(mesh(G.coneBand, MAT.white, 0, 0.55, 0));
     c.position.x = dx;
     g.add(c);
   }
@@ -127,6 +166,7 @@ export class Traffic {
 
   addHazard(mesh, x, z, hw, hd, h, vz = 0, isCar = false) {
     mesh.position.set(x, 0, z);
+    mesh.traverse((m) => { if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; } });
     this.scene.add(mesh);
     this.hazards.push({ mesh, x, z, hw, hd, y0: 0, y1: h, vz, isCar });
   }
@@ -142,20 +182,21 @@ export class Traffic {
   }
 
   // Cars are created once the snake is close, so the arrival timing uses the current speed.
-  queueCar(x, zRow, oncoming) {
-    this.pending.push({ x, zRow, oncoming });
+  queueCar(x, zRow) {
+    this.pending.push({ x, zRow });
   }
 
-  addCar(x, zRow, oncoming, snakeZ, speed) {
-    // Place the car so it reaches zRow just as the snake does.
-    const vz = oncoming ? CFG.oncomingSpeed : -CFG.sameDirSpeed;
+  // All traffic drives toward the player. Place the car so it reaches zRow just as the snake does.
+  addCar(x, zRow, snakeZ, speed) {
+    const vz = CFG.oncomingSpeed;
     const t = (snakeZ - zRow) / speed;
-    this.addHazard(buildCar(oncoming), x, zRow - vz * t, 0.9, 2.1, 1.6, vz, true);
+    this.addHazard(buildCar(), x, zRow - vz * t, 0.9, 2.1, 1.45, vz, true);
   }
 
   addFood(x, z) {
     const mesh = buildApple();
     mesh.position.set(x, 0.9, z);
+    mesh.traverse((m) => { if (m.isMesh) m.castShadow = true; });
     this.scene.add(mesh);
     this.foods.push({ mesh, x, z, hw: 0.6, hd: 0.6, y0: 0.2, y1: 1.7, phase: Math.random() * 6 });
   }
@@ -170,7 +211,7 @@ export class Traffic {
     for (const slot of slots) {
       if (slot === safe || Math.random() > CFG.hazardChance) continue;
       const x = slot * W;
-      if (Math.random() < 0.55) this.queueCar(x, z, Math.random() < 0.55);
+      if (Math.random() < 0.55) this.queueCar(x, z);
       else this.addStatic(pick(['cone', 'barrier', 'dumpster']), x, z);
     }
   }
@@ -178,7 +219,7 @@ export class Traffic {
   update(dt, time, snakeZ, speed) {
     this.pending = this.pending.filter((p) => {
       if (snakeZ - p.zRow > CFG.carSpawnDist) return true;
-      this.addCar(p.x, p.zRow, p.oncoming, snakeZ, speed);
+      this.addCar(p.x, p.zRow, snakeZ, speed);
       return false;
     });
     for (const h of this.hazards) {

@@ -10,14 +10,13 @@ export const CFG = {
   speedPerFood: 0.4,
   laneSwitchSpeed: 24,
   jumpDur: 0.6,
-  jumpH: 2.4,
+  jumpH: 2.6,
 
   segSpacing: 0.95,
   startSegments: 3,
 
   carSpawnDist: 110,
-  oncomingSpeed: 9,
-  sameDirSpeed: 4,
+  oncomingSpeed: 10,
   rowSpacing: { 3: 18, 2: 17, 1: 24 },
   firstRowOffset: 18,
   lastRowMargin: 12,

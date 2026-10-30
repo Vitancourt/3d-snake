@@ -1,16 +1,16 @@
 import * as THREE from 'three';
 import { CFG } from './config.js';
 
-const BODY_COLORS = [0x2fb344, 0x249e3a];
+const BODY_COLORS = [0x24a03c, 0x1b8a31];
 const segGeo = new THREE.SphereGeometry(0.46, 14, 10);
-const segMats = BODY_COLORS.map((c) => new THREE.MeshLambertMaterial({ color: c }));
+const segMats = BODY_COLORS.map((c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.45 }));
 
 function buildHead() {
   const g = new THREE.Group();
-  const skin = new THREE.MeshLambertMaterial({ color: 0x39d353 });
+  const skin = new THREE.MeshStandardMaterial({ color: 0x2cb84a, roughness: 0.45 });
   const body = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.8, 1.1), skin);
   g.add(body);
-  const white = new THREE.MeshLambertMaterial({ color: 0xffffff });
+  const white = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.2 });
   const black = new THREE.MeshBasicMaterial({ color: 0x111111 });
   for (const s of [-1, 1]) {
     const eye = new THREE.Mesh(new THREE.SphereGeometry(0.17, 10, 8), white);
@@ -32,6 +32,7 @@ export class Snake {
   constructor(scene) {
     this.scene = scene;
     this.head = buildHead();
+    this.head.traverse((m) => { if (m.isMesh) m.castShadow = true; });
     scene.add(this.head);
     this.segments = [];
     this.reset();
@@ -67,6 +68,7 @@ export class Snake {
 
   grow() {
     const mesh = new THREE.Mesh(segGeo, segMats[this.segments.length % 2]);
+    mesh.castShadow = true;
     this.segments.push(mesh);
     this.scene.add(mesh);
     this.pop = 1;

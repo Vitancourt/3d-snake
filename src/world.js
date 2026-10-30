@@ -1,17 +1,52 @@
 import * as THREE from 'three';
 import { CFG } from './config.js';
 
-const lam = (color, extra = {}) => new THREE.MeshLambertMaterial({ color, ...extra });
+const lam = (color, extra = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.8, metalness: 0, ...extra });
+
+// Small procedural textures (only fillRect, so they work anywhere a canvas exists).
+function canvasTexture(size, draw) {
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  draw(c.getContext('2d'), size);
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 8;
+  return t;
+}
+const asphaltTex = canvasTexture(256, (g, n) => {
+  g.fillStyle = '#3b3e44';
+  g.fillRect(0, 0, n, n);
+  for (let k = 0; k < 2600; k++) {
+    const v = 40 + Math.floor(Math.random() * 50);
+    g.fillStyle = `rgba(${v},${v},${v + 4},${0.25 + Math.random() * 0.5})`;
+    g.fillRect(Math.random() * n, Math.random() * n, 1 + Math.random() * 2, 1 + Math.random() * 2);
+  }
+});
+const pavementTex = canvasTexture(128, (g, n) => {
+  g.fillStyle = '#a9aab0';
+  g.fillRect(0, 0, n, n);
+  for (let k = 0; k < 600; k++) {
+    const v = 140 + Math.floor(Math.random() * 40);
+    g.fillStyle = `rgba(${v},${v},${v + 4},0.35)`;
+    g.fillRect(Math.random() * n, Math.random() * n, 2, 2);
+  }
+  g.fillStyle = '#85868c';
+  g.fillRect(0, 0, n, 3);
+  g.fillRect(0, 0, 3, n);
+});
 const M = {
-  asphalt: lam(0x33363d),
+  asphalt: lam(0x33363d, { roughness: 0.95 }),
+  road: lam(0xffffff, { map: asphaltTex, roughness: 0.92 }),
+  pavement: lam(0xffffff, { map: pavementTex, roughness: 0.85 }),
   slab: lam(0xa7aab2),
   curb: lam(0xd0d2d8),
-  white: lam(0xf2f2f2),
-  yellow: lam(0xf4c430),
+  white: lam(0xf2f2f2, { roughness: 0.6 }),
+  yellow: lam(0xf4c430, { roughness: 0.6 }),
   trunk: lam(0x6b4423),
-  leaf: lam(0x3a9d4f),
+  leaf: lam(0x3a9d4f, { roughness: 0.9 }),
   pole: lam(0x45484f),
-  lamp: lam(0xfff3b0, { emissive: 0xffe58a }),
+  lamp: lam(0xfff3b0, { emissive: 0xffe58a, emissiveIntensity: 1.5 }),
 };
 
 const boxCache = new Map();
@@ -28,20 +63,41 @@ function addBox(group, w, h, d, mat, x, y, z) {
   return m;
 }
 
+const planeCache = new Map();
+// Flat horizontal quad whose texture repeats every `tile` metres.
+function addPlane(group, w, d, tile, mat, x, y, z) {
+  const key = `${w}|${d}|${tile}`;
+  let g = planeCache.get(key);
+  if (!g) {
+    g = new THREE.PlaneGeometry(w, d);
+    g.rotateX(-Math.PI / 2);
+    const uv = g.attributes.uv;
+    for (let v = 0; v < uv.count; v++) uv.setXY(v, (uv.getX(v) * w) / tile, (uv.getY(v) * d) / tile);
+    planeCache.set(key, g);
+  }
+  const m = new THREE.Mesh(g, mat);
+  m.position.set(x, y, z);
+  group.add(m);
+  return m;
+}
+
 // Window texture shared by all buildings; geometry UVs are scaled per building size.
 function makeWindowTexture(lit) {
-  const c = document.createElement('canvas');
-  c.width = c.height = 64;
-  const g = c.getContext('2d');
-  g.fillStyle = '#ffffff';
-  g.fillRect(0, 0, 64, 64);
-  g.fillStyle = lit ? '#ffd27a' : '#34425e';
-  g.fillRect(14, 14, 36, 36);
-  g.fillStyle = 'rgba(255,255,255,0.35)';
-  g.fillRect(14, 14, 36, 6);
-  const t = new THREE.CanvasTexture(c);
-  t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.colorSpace = THREE.SRGBColorSpace;
+  const t = canvasTexture(64, (g) => {
+    g.fillStyle = '#ffffff';
+    g.fillRect(0, 0, 64, 64);
+    g.fillStyle = '#d9d9de';
+    g.fillRect(0, 56, 64, 8); // floor slab
+    g.fillStyle = '#e8e8ec';
+    g.fillRect(10, 10, 44, 44); // frame
+    g.fillStyle = lit ? '#ffd88a' : '#27344d';
+    g.fillRect(13, 13, 38, 38);
+    g.fillStyle = lit ? '#fff0c4' : '#46597d';
+    g.fillRect(13, 13, 38, 12); // sky reflection
+    g.fillStyle = '#e8e8ec';
+    g.fillRect(31, 13, 2, 38); // mullion
+    g.fillRect(13, 31, 38, 2);
+  });
   return t;
 }
 const WALL_COLORS = [0xe76f51, 0xf4a261, 0xe9c46a, 0x8ecae6, 0xb8b8d1, 0xcdb4db, 0xa7c957, 0xf28482];
@@ -51,7 +107,7 @@ const buildingGeoCache = new Map();
 function getBuildingMat() {
   if (!buildingMats) {
     const textures = [makeWindowTexture(false), makeWindowTexture(true)];
-    buildingMats = WALL_COLORS.flatMap((c) => textures.map((map) => lam(c, { map })));
+    buildingMats = WALL_COLORS.flatMap((c) => textures.map((map) => lam(c, { map, roughness: 0.55, metalness: 0.05 })));
   }
   return buildingMats[Math.floor(Math.random() * buildingMats.length)];
 }
@@ -82,6 +138,7 @@ function pickSlots(i) {
   return [0];
 }
 
+const treeGeo = new THREE.IcosahedronGeometry(1.3, 1);
 const rand = (a, b) => a + Math.random() * (b - a);
 const BUILDING_EDGE = 1.5 * CFG.laneW + 4.5; // buildings start beyond the widest road + sidewalk
 
@@ -150,8 +207,11 @@ export class World {
 
     // Ground: asphalt base, raised sidewalk slabs either side of the road.
     addBox(group, half * 2, 0.5, L, M.asphalt, 0, -0.25, zc);
+    addPlane(group, hi - lo, L, 6, M.road, (lo + hi) / 2, 0.004, zc);
     addBox(group, lo + half, 0.2, L, M.slab, (lo - half) / 2, 0.1, zc);
     addBox(group, half - hi, 0.2, L, M.slab, (hi + half) / 2, 0.1, zc);
+    addPlane(group, lo + half, L, 2, M.pavement, (lo - half) / 2, 0.202, zc);
+    addPlane(group, half - hi, L, 2, M.pavement, (hi + half) / 2, 0.202, zc);
     addBox(group, 0.3, 0.25, L, M.curb, lo - 0.15, 0.125, zc);
     addBox(group, 0.3, 0.25, L, M.curb, hi + 0.15, 0.125, zc);
 
@@ -169,6 +229,11 @@ export class World {
 
     this.addTown(group, i, z0, z1, lo, hi);
 
+    group.traverse((m) => {
+      if (!m.isMesh) return;
+      m.receiveShadow = true;
+      m.castShadow = m.geometry === treeGeo || (!!m.geometry.parameters && m.geometry.parameters.height > 0.5);
+    });
     this.scene.add(group);
     this.chunks.push({ i, group, endZ: z1 });
   }
@@ -229,8 +294,12 @@ export class World {
         for (let dz = 6; dz < CFG.chunkLen; dz += 11) {
           const x = side * rand(gapStart, BUILDING_EDGE - 1.5);
           addBox(group, 0.35, 1.6, 0.35, M.trunk, x, 0.8, z0 - dz - rand(0, 4));
-          const crown = addBox(group, 2, 2, 2, M.leaf, x, 2.6, group.children.at(-1).position.z);
+          const crown = new THREE.Mesh(treeGeo, M.leaf);
+          crown.position.set(x, 2.8, group.children.at(-1).position.z);
+          crown.scale.set(1 + Math.random() * 0.3, 1 + Math.random() * 0.4, 1 + Math.random() * 0.3);
           crown.rotation.y = Math.random() * 3;
+          crown.castShadow = true;
+          group.add(crown);
         }
       }
     }

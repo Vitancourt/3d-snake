@@ -30,6 +30,10 @@ export const ui = {
     this.setScore(score);
   },
 
+  showPause() { $('pause').classList.add('show'); },
+  hidePause() { $('pause').classList.remove('show'); },
+  setFps(fps) { $('fps').textContent = `${fps} FPS`; },
+
   hideOverlay() { $('overlay').classList.add('hidden'); },
 
   flash() {
