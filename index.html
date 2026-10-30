@@ -14,6 +14,10 @@
     #overlay.hidden { display: none; }
     #overlay h1 { font-size: clamp(32px, 8vw, 64px); margin: 0 0 8px; }
     #overlay p { margin: 4px 16px; font-size: clamp(14px, 3.5vw, 20px); }
+    #minimap { position: fixed; left: 12px; top: 52px; width: 150px; height: 150px; border-radius: 8px; border: 1px solid rgba(255,255,255,.35);
+               pointer-events: none; }
+    #turn { position: fixed; left: 50%; bottom: 36px; transform: translateX(-50%); color: #fff; font: 800 34px system-ui, sans-serif;
+            text-shadow: 0 2px 6px rgba(0,0,0,.7); pointer-events: none; opacity: 0; transition: opacity .12s; }
     #fps { position: fixed; right: 12px; bottom: 10px; color: #fff; font: 600 13px/1 ui-monospace, monospace;
            text-shadow: 0 1px 3px rgba(0,0,0,.7); pointer-events: none; }
     #pause { position: fixed; inset: 0; display: none; flex-direction: column; align-items: center; justify-content: center;
@@ -42,6 +46,8 @@
 <body>
   <div id="hud"><span id="score">Score 0</span><span id="best">Best 0</span></div>
   <div id="flash"></div>
+  <canvas id="minimap"></canvas>
+  <div id="turn"></div>
   <div id="fps">-- FPS</div>
   <div id="pause">
     <h2>PAUSED</h2>
@@ -55,9 +61,9 @@
   <div id="overlay">
     <h1 id="title">3D SNAKE</h1>
     <p id="subtitle">Town Runner</p>
-    <p>&larr; &rarr; / A D: change lane &nbsp;&middot;&nbsp; Space / &uarr; / W: jump</p>
-    <p>Esc: pause &nbsp;&middot;&nbsp; Touch: joystick to change lane, JUMP button to jump</p>
-    <p style="font-size:12px;opacity:.75">Ferrari 458 model by vicent091036 (CC BY-NC 4.0) &middot; street lantern and barrier from Poly Haven (CC0)</p>
+    <p>&larr; &rarr; / A D: turn at the next crossing &nbsp;&middot;&nbsp; Space / &uarr; / W: jump</p>
+    <p>Esc: pause &nbsp;&middot;&nbsp; Touch: joystick left/right to turn, JUMP button to jump</p>
+    <p style="font-size:12px;opacity:.75">Ferrari 458 model by vicent091036 (CC BY-NC 4.0) &middot; buildings by Kenney (CC0), snake by Quaternius (CC0), lantern and barrier from Poly Haven (CC0)</p>
     <p id="prompt"><b>Press Space or tap to start</b></p>
   </div>
   <script type="module" src="/src/main.js"></script>

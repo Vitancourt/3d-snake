@@ -20,13 +20,13 @@ export const ui = {
     $('overlay').classList.remove('hidden');
   },
 
-  showGameOver(score) {
+  showGameOver(score, reason = '') {
     if (score > best) {
       best = score;
       try { localStorage.setItem('snake3d-best', String(best)); } catch { /* ignore */ }
     }
     $('title').textContent = 'GAME OVER';
-    $('subtitle').textContent = `Score ${score} · Best ${best}`;
+    $('subtitle').textContent = `${reason ? reason + ' · ' : ''}Score ${score} · Best ${best}`;
     $('prompt').innerHTML = '<b>Press Space or tap to retry</b>';
     $('overlay').classList.remove('hidden');
     this.setScore(score);
@@ -34,6 +34,11 @@ export const ui = {
 
   showPause() { $('pause').classList.add('show'); },
   hidePause() { $('pause').classList.remove('show'); },
+  setTurn(side) {
+    const el = $('turn');
+    el.textContent = side < 0 ? '⮢ left' : side > 0 ? 'right ⮣' : '';
+    el.style.opacity = side ? '1' : '0';
+  },
   setFps(fps) { $('fps').textContent = `${fps} FPS`; },
 
   hideOverlay() { $('overlay').classList.add('hidden'); },

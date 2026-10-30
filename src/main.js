@@ -1,9 +1,11 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { CFG } from './config.js';
+import { CFG, DIRS, N, inGrid, nodeX, nodeZ } from './config.js';
 import { Snake } from './snake.js';
-import { Traffic } from './hazards.js';
-import { World } from './world.js';
+import { Traffic } from './traffic.js';
+import { buildTown } from './town.js';
+import { createClouds } from './sky.js';
+import { createMinimap } from './minimap.js';
 import { createInput } from './input.js';
 import { ui } from './ui.js';
 import { loadModels } from './models.js';
@@ -62,9 +64,11 @@ resize();
 ui.setLoading();
 await loadModels();
 
+buildTown(scene);
+const clouds = createClouds(scene);
 const snake = new Snake(scene);
 const traffic = new Traffic(scene);
-const world = new World(scene, traffic);
+const minimap = createMinimap(document.getElementById('minimap'));
 
 let state = 'menu'; // menu | playing | paused | over
 let score = 0;
@@ -74,22 +78,32 @@ const auto = new URLSearchParams(location.search).has('auto');
 const camPos = new THREE.Vector3();
 const camLook = new THREE.Vector3();
 
-const speedNow = () => Math.min(CFG.maxSpeed, CFG.baseSpeed + CFG.speedPerFood * score);
-const slotOpen = (slot) => world.slotsAt(snake.z).includes(slot);
+const speedNow = () => Math.min(CFG.maxSpeed, CFG.baseSpeed + CFG.speedPerApple * score);
 
 function reset() {
-  traffic.clear();
-  world.reset();
   snake.reset();
+  traffic.reset(snake);
   score = 0;
   ui.setScore(0);
-  world.update(snake.z, speedNow());
+  ui.setTurn(0);
   snapCamera();
 }
 
+const camBack = new THREE.Vector3();
+function cameraTargets() {
+  snake._cursor = undefined;
+  const p = snake.pointBack(10);
+  const d = DIRS[snake.dir];
+  camBack.set(p.x, 5.6 + snake.y * 0.3, p.z);
+  return {
+    look: new THREE.Vector3(snake.x + d.dx * 6, 0.9, snake.z + d.dz * 6),
+  };
+}
+
 function snapCamera() {
-  camPos.set(snake.x * 0.6, 6.3, snake.z + 11);
-  camLook.set(snake.x * 0.8, 0.8, snake.z - 10);
+  const t = cameraTargets();
+  camPos.copy(camBack);
+  camLook.copy(t.look);
 }
 
 function start() {
@@ -121,16 +135,17 @@ function restart() {
   state = 'playing';
 }
 
-function die() {
+function die(reason) {
   state = 'over';
   overAt = performance.now();
   ui.flash();
-  ui.showGameOver(score);
+  ui.showGameOver(score, reason);
+  window.__result = { score, reason, length: snake.len };
 }
 
 createInput({
-  left: () => state === 'playing' && snake.moveSlot(-1, slotOpen),
-  right: () => state === 'playing' && snake.moveSlot(1, slotOpen),
+  left: () => state === 'playing' && queueTurn(-1),
+  right: () => state === 'playing' && queueTurn(1),
   jump: () => state === 'playing' && snake.jump(),
   action: start,
   pause,
@@ -140,48 +155,70 @@ document.getElementById('resume-btn').addEventListener('click', resume);
 document.getElementById('restart-btn').addEventListener('click', restart);
 document.addEventListener('visibilitychange', () => { if (document.hidden && state === 'playing' && !auto) pause(); });
 
+function queueTurn(side) {
+  snake.turn(side);
+  ui.setTurn(side);
+}
+
 // Debug autopilot (?auto): follows the guaranteed-clear lane and hops low obstacles.
+let autoKey = '';
 function autopilot() {
-  const row = world.rows.filter((r) => r.z < snake.z + 8).sort((a, b) => b.z - a.z)[0];
-  if (row && row.slot !== snake.slot && Math.abs(snake.x - snake.slot * CFG.laneW) < 0.2) {
-    snake.moveSlot(Math.sign(row.slot - snake.slot), slotOpen);
+  // Decide once per street segment: head for the nearest apple, never into a dead end.
+  const key = `${snake.i},${snake.j},${snake.dir}`;
+  if (key !== autoKey && snake.t > CFG.spacing - 7) {
+    autoKey = key;
+    const d = DIRS[snake.dir];
+    const ni = snake.i + d.dx;
+    const nj = snake.j + d.dz;
+    const apple = [...traffic.apples].sort(
+      (a, b) => Math.hypot(a.x - snake.x, a.z - snake.z) - Math.hypot(b.x - snake.x, b.z - snake.z),
+    )[0];
+    const options = [0, -1, 1].map((turn) => {
+      const nd = (snake.dir + (turn > 0 ? 1 : turn < 0 ? 3 : 0)) % 4;
+      const fi = ni + DIRS[nd].dx * 2;
+      const fj = nj + DIRS[nd].dz * 2;
+      const ok = inGrid(ni + DIRS[nd].dx, nj + DIRS[nd].dz) && inGrid(ni, nj);
+      const score = apple ? Math.hypot(nodeX(fi) - apple.x, nodeZ(fj) - apple.z) : Math.random();
+      return { turn, ok, score: score + (turn ? 0 : -3) };
+    }).filter((o) => o.ok).sort((a, b) => a.score - b.score);
+    if (options.length) snake.turn(options[0].turn);
   }
-  const ahead = traffic.hazards.find(
-    (h) => !h.vz && h.y1 < 2 && Math.abs(h.x - snake.x) < 1.2 && snake.z - h.z > 0 && snake.z - h.z < 0.18 * speedNow() + 1.5,
-  );
-  if (ahead) snake.jump();
+  const d = DIRS[snake.dir];
+  const v = speedNow();
+  const blocked = [...traffic.cars, ...traffic.obstacles].some((h) => {
+    const fx = (h.x - snake.x) * d.dx + (h.z - snake.z) * d.dz;
+    const side = Math.abs((h.x - snake.x) * d.dz - (h.z - snake.z) * d.dx);
+    const reach = h.isCar === undefined && !h.dir ? 0.2 * v + 1.4 : 2.3 + 0.2 * (v + CFG.carSpeed) + 0.5;
+    return fx > 0 && fx < reach && side < 1.4 && h.y1 < 1.8;
+  });
+  if (blocked) snake.jump();
 }
 
 function step(dt) {
   const speed = speedNow();
   if (auto) autopilot();
   snake.update(dt, speed);
-  world.update(snake.z, speed);
-  traffic.update(dt, time, snake.z, speed);
+  traffic.update(dt, time, snake);
+  if (snake.turned) ui.setTurn(0);
 
-  const eaten = traffic.eat(snake.headBox());
+  const eaten = traffic.eat(snake.headBox(), snake);
   for (let k = 0; k < eaten; k++) { snake.grow(); score++; }
   if (eaten) ui.setScore(score);
 
-  const hit = traffic.tailHit(snake);
-  if (hit >= 0) { snake.truncate(hit); ui.flash(); }
-
-  const b = world.roadBounds(snake.z);
-  if (snake.x < b.min + 0.1 || snake.x > b.max - 0.1 || traffic.hitHead(snake.headBox())) die();
-  traffic.cleanup(snake.z);
+  if (snake.crashed) die('You hit the wall');
+  else if (traffic.hitHead(snake.headBox())) die('You crashed');
+  else if (snake.bitTail()) die('You bit your own tail');
 }
 
 function updateCamera(dt) {
-  const k = 1 - Math.exp(-6 * dt);
-  camPos.x += (snake.x * 0.6 - camPos.x) * k;
-  camPos.y = 6.3 + snake.y * 0.3;
-  camPos.z = snake.z + 11;
-  camLook.x += (snake.x * 0.8 - camLook.x) * k;
-  camLook.z = snake.z - 10;
+  const t = cameraTargets();
+  const k = 1 - Math.exp(-7 * dt);
+  camPos.lerp(camBack, k);
+  camLook.lerp(t.look, k);
   camera.position.copy(camPos);
   camera.lookAt(camLook);
-  sun.position.copy(snake.head.position).add(SUN_OFFSET);
-  sun.target.position.copy(snake.head.position);
+  sun.position.set(snake.x, 0, snake.z).add(SUN_OFFSET);
+  sun.target.position.set(snake.x, 0, snake.z);
 }
 
 let fpsFrames = 0;
@@ -201,7 +238,9 @@ function frame(now) {
   last = now;
   time += dt;
   if (state === 'playing') step(dt);
+  clouds.update(dt);
   updateCamera(dt);
+  minimap.draw(snake, traffic);
   renderer.render(scene, camera);
   countFps(now);
   requestAnimationFrame(frame);
@@ -215,7 +254,10 @@ if (auto) {
   ui.hideOverlay();
   // ?auto&ff=N fast-forwards N seconds, handy for screenshots.
   const ff = Number(new URLSearchParams(location.search).get('ff')) || 0;
-  for (let k = 0; k < ff * 60 && state === 'playing'; k++) { time += 1 / 60; step(1 / 60); }
+  let steps = 0;
+  for (; steps < ff * 60 && state === 'playing'; steps++) { time += 1 / 60; step(1 / 60); }
+  snapCamera();
+  document.title = JSON.stringify({ state, score, seconds: Math.round(steps / 60), len: snake.len, result: window.__result || null });
 }
-window.__game = { snake, world, traffic, renderer, get state() { return state; } };
+window.__game = { snake, traffic, renderer, get state() { return state; } };
 requestAnimationFrame(frame);
